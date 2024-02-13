@@ -1,6 +1,6 @@
 Quantum circuit knitting project as a part of my bachelor's thesis at Aalto University.
 
-Currently only supports single wire cuts. Example use can be found in the main.py file. </br>
+Currently only supports single wire cuts. Example use can be found in the main.py file. </br> </br>
 Version info:
 <table>
   <tr>
