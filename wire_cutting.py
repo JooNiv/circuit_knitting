@@ -1,16 +1,13 @@
+from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
 from qiskit.circuit import Qubit
-from qiskit import QuantumCircuit
-import numpy as np
-from helper import to_numpy_exp
+from itertools import product
 from identity_QPD import identity_QPD2
 from qiskit_aer import Aer
-from qiskit_aer.primitives import Estimator
-from itertools import product
+import numpy as np
 import random
+from qiskit_aer.primitives import Estimator
 
-
-#get the location of the cut from the circuit. Also removes the marker
 def get_cut_location(circ):
     i = 0
     data = circ.data
@@ -91,9 +88,10 @@ def create_sub_circuits(circ, qss):
             )
     return(sub0, sub1)
 
-#make the experiments by inserting QPD into the sub-circuits
-def make_experiments(circs, qss):
-    comb = list(product(identity_QPD2,repeat=len(qss)))
+def decomp_combinations(qss):
+    return list(product(identity_QPD2,repeat=len(qss)))
+
+def all_subcircs(comb, circs, qss):
     circuits = []
     coefs = []
     for j in comb:
@@ -150,46 +148,64 @@ def make_experiments(circs, qss):
         circuits.append((sub0, sub1))   
     return circuits, coefs
 
-#run experiments and obtain the estimated expectation values
-def run_experiments(circuits, coefs, n = 1000):
-    results = []
-    coefs_new = []
-    arr = list(zip(circuits, coefs))
+def run_experiments(allcircs):
     simulator = Aer.get_backend('aer_simulator')
-    for i in range(8000):
-        cur = random.sample(arr, 1)
+    results = []
+    for i in allcircs:
+        res1 = simulator.run(i[0], shots=2**12).result().get_counts()
+        res2 = simulator.run(i[1], shots=2**12).result().get_counts()
+        results.append((res1, res2))
+    return results
+
+def modify_results(results):
+    modified_array = []
+    for item in results:
         mid = []
-        result = simulator.run(cur[0][0][0], shots=1).result()
-        qd = list(result.get_counts().keys())[0].replace(" ", "")
-        s = qd[circuits[0][0].qregs[0].size:]
-        y = qd[:circuits[0][0].qregs[0].size]
-        mid.append({"s": s, "y": y})
-        result = simulator.run(cur[0][0][1], shots=1).result()
-        qd = list(result.get_counts().keys())[0].replace(" ", "")
-        s = qd[circuits[0][1].qregs[0].size:]
-        y = qd[:circuits[0][1].qregs[0].size]
-        mid.append({"s": s, "y": y})
-        results.append(mid)
-        coefs_new.append(cur[0][1])
-    return results, coefs_new
+        for sub in item:
+            #print(sub)
+            rs = []
+            ps = []
+            for k,v in sub.items():
+                kn = k.split()
+                r = {
+                    "y": [],
+                    "s": []
+                }
+                for i in kn[0][::-1]:
+                    for c in i:
+                        if int(c) == 0:
+                            r["y"].append(-1)
+                        else:
+                            r["y"].append(1)
+                if(len(kn) > 1):
+                    for i in kn[1][::-1]:
+                        for c in i:
+                            if int(c) == 0:
+                                r["s"].append(-1)
+                            else:
+                                r["s"].append(1)
+                rs.append(r)
+                ps.append(v/4096)
+            mid.append((rs, ps))
+        modified_array.append(mid)
+    return modified_array
 
-def estimate_exp(results, subobs, coefs):
-    f = np.zeros(len(results[0][0]["y"]) + len(results[0][1]["y"]) - 1)
-    #print(f)
-    for i, j in zip(results, coefs):
-        #print(i)
-        combined_s = np.array([list(map(lambda x: -1 if x == 0 else 1, np.array(list(i[0]["s"] + i[1]["s"]), dtype=int)))])[0]
-        combined_y = []
-        if subobs == 0:
-            combined_y = np.array([list(map(lambda x: -1 if x == 0 else 1, np.array(list(i[0]["y"][::-1] + i[1]["y"][:-1][::-1]), dtype=int)))])[0]
-            
+def sample_results(data, qss):
+    ql = len(data[0][1][0][0][0]["y"]) +len(data[0][1][1][0][0]["y"]) - 1
+    f = np.zeros(ql)
+    N = min(np.power(4, len(qss)*2)/np.power(0.05,2)+ 100000, 1000000)
+    for i in range(int(N)):
+        elem = random.choice(data)
+        sub1 = random.choices(elem[1][0][0], elem[1][0][1])[0]
+        sub2 = random.choices(elem[1][1][0], elem[1][1][1])[0]
+        n = []
+        if len(qss) % 2 == 0:
+            n = -1*np.concatenate((sub1["y"], sub2["y"][1:]))*np.prod(elem[0])*np.prod(sub1["s"])*np.prod(sub2["s"])
         else:
-            combined_y = np.array([list(map(lambda x: -1 if x == 0 else 1, np.array(list(i[0]["y"][1:][::-1] + i[1]["y"][::-1]), dtype=int)))])[0]
-        f += np.prod(j)*np.prod(combined_s)*combined_y
-            
-    return f*4/8000
+            n = np.concatenate((sub1["y"][:-1], sub2["y"]))*np.prod(elem[0])*np.prod(sub1["s"])*np.prod(sub2["s"])
+        f += n
+    return np.power(4, len(qss))*f/N
 
-#get the actual expectation values of the circuit
 def get_actual_expvals(circ, obs):
     estimator = Estimator(run_options={"shots": None}, approximation = True)
     exact_expvals = (

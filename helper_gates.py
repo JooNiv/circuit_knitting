@@ -14,7 +14,7 @@ c.measure(0,0)
 ymeas = c.to_instruction()
 
 c = QuantumCircuit(1,1, name="decomp")
-#c.initialize([1,0],0)
+c.initialize([1,0],0)
 c.measure(0,0)
 idmeas = c.to_instruction()
 
@@ -26,7 +26,7 @@ zmeas = c.to_instruction()
 cut = QuantumCircuit(2, name="Cut")
 cutWire = cut.to_instruction()
 
-#define measurements for different bases
+#define initialization instructions for the eigenstates
 c = QuantumCircuit(1, name="decomp")
 c.initialize([1,0], 0)
 zero_init = c.to_instruction()
