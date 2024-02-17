@@ -1,6 +1,6 @@
 Quantum circuit knitting project as a part of my bachelor's thesis at Aalto University.
 
-Able to perform multiple cuts on a single wire. Parallel wire cuts or cutting to more than two parts is not yet supported. Example use can be found in the main.py file. </br> </br>
+Able to perform multiple cuts on a single wire. Gate cut support is coming. Parallel wire cuts or cutting to more than two parts is not supported. Example use can be found in the main.py file. </br> </br>
 Version info:
 <table>
   <tr>
