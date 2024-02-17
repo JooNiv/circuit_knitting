@@ -8,203 +8,203 @@ import numpy as np
 import random
 from qiskit_aer.primitives import Estimator
 
-def get_cut_location(circ):
-    i = 0
-    data = circ.data
-    qss = []
+def get_cut_location(circuit):
+    index = 0
+    circuit_data = circuit.data
+    cut_locations = []
     offset = 0
-    while i < len(circ):
-        if data[i].operation.name == "Cut":
-            qs = map(lambda x: circ.find_bit(x).registers[0] ,data[i].qubits)
-            data.remove(data[i])
-            qss.append((tuple(qs), i + offset))
-            #offset += 1
-            i -= 1
-        i += 1
-    return qss
+    while index < len(circuit):
+        if circuit_data[index].operation.name == "Cut":
+            qs = map(lambda x: circuit.find_bit(x).registers[0] ,circuit_data[index].qubits)
+            circuit_data.remove(circuit_data[index])
+            cut_locations.append((tuple(qs), index + offset))
+            index -= 1
+        index += 1
+    return cut_locations
 
 c = QuantumCircuit(1, name="Meas")
-meas = c.to_instruction()
+measure_node = c.to_instruction()
 
 c = QuantumCircuit(1, name="Init")
-init = c.to_instruction()
+initialize_node = c.to_instruction()
 
 #Insert placeholders to the cut locations
-def insert_placeholder(circ, qss):
-    clc = QuantumCircuit(0)
-    circ = circ.compose(clc)
-    data = circ.data
+def insert_placeholder(circuit, cut_locations):
+    circuit_data = circuit.data
     offset = 0
-    for i in qss:
+    for i in cut_locations:
         if max(i[0][0][1], i[0][1][1]) == i[0][0][1]:
-            data.insert(i[1]+offset , CircuitInstruction(operation=meas, qubits=[Qubit(i[0][0][0], i[0][0][1])]))
-            data.insert(i[1]+offset , CircuitInstruction(operation=init, qubits=[Qubit(i[0][1][0], i[0][1][1])]))
+            circuit_data.insert(i[1]+offset , CircuitInstruction(operation=measure_node, qubits=[Qubit(i[0][0][0], i[0][0][1])]))
+            circuit_data.insert(i[1]+offset , CircuitInstruction(operation=initialize_node, qubits=[Qubit(i[0][1][0], i[0][1][1])]))
             offset += 2
         else:
-            data.insert(i[1]+offset , CircuitInstruction(operation=init, qubits=[Qubit(i[0][1][0], i[0][1][1])]))
-            data.insert(i[1]+offset , CircuitInstruction(operation=meas, qubits=[Qubit(i[0][0][0], i[0][0][1])]))
+            circuit_data.insert(i[1]+offset , CircuitInstruction(operation=initialize_node, qubits=[Qubit(i[0][1][0], i[0][1][1])]))
+            circuit_data.insert(i[1]+offset , CircuitInstruction(operation=measure_node, qubits=[Qubit(i[0][0][0], i[0][0][1])]))
             offset += 2
-    return circ
+    circuit = circuit.decompose(gates_to_decompose="decomp")
+    return circuit
 
 #get number of classical bits needed
-def get_num_clbits(qss):
-    count = 0
-    max_value = max(qss[0][0][0][1], qss[0][0][1][1])
-    #print(max_value)
-    for tup in qss:
-        if tup[0][0][1] < max_value:
-            count += 1
-    return count
+def get_num_clbits(cut_locations):
+    num_clbits = 0
+    max_value = max(cut_locations[0][0][0][1], cut_locations[0][0][1][1])
+    for loc in cut_locations:
+        if loc[0][0][1] < max_value:
+            num_clbits += 1
+    return num_clbits
 
 #Cuts the given circuit into two at the location of the cut marker
-def create_sub_circuits(circ, qss):
-    clb = get_num_clbits(qss)
-    sub0 = QuantumCircuit(max(qss[0][0][0][1], qss[0][0][1][1]), clb)
-    bitind0 = 0
-    sub1 = QuantumCircuit(circ.qregs[0].size - max(qss[0][0][0][1], qss[0][0][1][1]), len(qss) - clb)
-    bitind1 = 0
-    for i in circ.data:
-        if circ.find_bit(i.qubits[0]).index < max(qss[0][0][0][1], qss[0][0][1][1]):
-            test = map(lambda x: Qubit(sub0.qregs[0], circ.find_bit(x).index), i.qubits)
+def create_sub_circuits(circuit, cut_locations):
+    classical_bits = get_num_clbits(cut_locations)
+    sub_circuit_0 = QuantumCircuit(max(cut_locations[0][0][0][1], cut_locations[0][0][1][1]), classical_bits)
+    bitindex0 = 0 #counter variable
+    sub_circuit_1 = QuantumCircuit(circuit.qregs[0].size - max(cut_locations[0][0][0][1], cut_locations[0][0][1][1]), len(cut_locations) - classical_bits)
+    bitindex1 = 0 #counter variable
+    for i in circuit.data:
+        if circuit.find_bit(i.qubits[0]).index < max(cut_locations[0][0][0][1], cut_locations[0][0][1][1]):
+            test = map(lambda x: Qubit(sub_circuit_0.qregs[0], circuit.find_bit(x).index), i.qubits)
             test = tuple(test)
-            clb = ()
+            classical_bits = ()
             if i.operation.name == "measure":
-                clb = [sub0.clbits[bitind0]]
-                bitind0 += 1
-            sub0.data.insert(
-                len(sub0),
-                CircuitInstruction(operation=i.operation, qubits=test, clbits=clb),
+                classical_bits = [sub_circuit_0.clbits[bitindex0]]
+                bitindex0 += 1
+            sub_circuit_0.data.insert(
+                len(sub_circuit_0),
+                CircuitInstruction(operation=i.operation, qubits=test, clbits=classical_bits),
             )
         else:
-            test = map(lambda x: Qubit(sub1.qregs[0], circ.find_bit(x).index - max(qss[0][0][0][1], qss[0][0][1][1])), i.qubits)
+            test = map(lambda x: Qubit(sub_circuit_1.qregs[0], circuit.find_bit(x).index - max(cut_locations[0][0][0][1], cut_locations[0][0][1][1])), i.qubits)
             test = tuple(test)
-            clb = ()
+            classical_bits = ()
             if i.operation.name == "measure":
-                clb = [sub1.clbits[bitind1]]
-                bitind1 += 1
-            sub1.data.insert(
-                len(sub1),
-                CircuitInstruction(operation=i.operation, qubits=test, clbits=clb),
+                classical_bits = [sub_circuit_1.clbits[bitindex1]]
+                bitindex1 += 1
+            sub_circuit_1.data.insert(
+                len(sub_circuit_1),
+                CircuitInstruction(operation=i.operation, qubits=test, clbits=classical_bits),
             )
-    return(sub0, sub1)
+    return(sub_circuit_0, sub_circuit_1)
 
-def decomp_combinations(qss):
-    return list(product(identity_QPD2,repeat=len(qss)))
+def decomp_combinations(cut_locations):
+    return list(product(identity_QPD2,repeat=len(cut_locations)))
 
-def all_subcircs(comb, circs, qss):
+def all_subcircs(combinations_QPD, sub_circuits, cut_locations):
     circuits = []
     coefs = []
-    for j in comb:
-        sub0 = circs[0].copy()
-        sub1 = circs[1].copy()
+    for j in combinations_QPD:
+        sub_circuit_0 = sub_circuits[0].copy()
+        sub_circuit_1 = sub_circuits[1].copy()
         count = 0
         bitind = 0
         coef = []
-        for i in sub0.data:
-            if count >= len(qss):
+        for i in sub_circuit_0.data:
+            if count >= len(cut_locations):
                 break
             if i.operation.name == "Meas":
-                ind = sub0.data.index(i)
-                sub0.data.remove(i)
-                test = map(lambda x: Qubit(sub0.qregs[0], sub0.find_bit(x).index), i.qubits)
+                ind = sub_circuit_0.data.index(i)
+                sub_circuit_0.data.remove(i)
+                test = map(lambda x: Qubit(sub_circuit_0.qregs[0], sub_circuit_0.find_bit(x).index), i.qubits)
                 test = tuple(test)
-                sub0.data.insert(ind, CircuitInstruction(operation=j[count]["op"], qubits=test, clbits=[sub0.clbits[bitind]]))
+                sub_circuit_0.data.insert(ind, CircuitInstruction(operation=j[count]["op"], qubits=test, clbits=[sub_circuit_0.clbits[bitind]]))
                 bitind += 1
                 coef.append(j[count]["c"])
                 count += 1
             if i.operation.name == "Init":
-                ind = sub0.data.index(i)
-                sub0.data.remove(i)
-                test = map(lambda x: Qubit(sub0.qregs[0], sub0.find_bit(x).index), i.qubits)
+                ind = sub_circuit_0.data.index(i)
+                sub_circuit_0.data.remove(i)
+                test = map(lambda x: Qubit(sub_circuit_0.qregs[0], sub_circuit_0.find_bit(x).index), i.qubits)
                 test = tuple(test)
-                sub0.data.insert(ind, CircuitInstruction(operation=j[count]["init"], qubits=test))
+                sub_circuit_0.data.insert(ind, CircuitInstruction(operation=j[count]["init"], qubits=test))
                 coef.append(j[count]["c"])
                 count += 1
         count = 0
         bitind = 0
-        for i in sub1.data:
-            if count >= len(qss):
+        for i in sub_circuit_1.data:
+            if count >= len(cut_locations):
                 break
             if i.operation.name == "Meas":
-                ind = sub1.data.index(i)
-                sub1.data.remove(i)
-                test = map(lambda x: Qubit(sub1.qregs[0], sub1.find_bit(x).index), i.qubits)
+                ind = sub_circuit_1.data.index(i)
+                sub_circuit_1.data.remove(i)
+                test = map(lambda x: Qubit(sub_circuit_1.qregs[0], sub_circuit_1.find_bit(x).index), i.qubits)
                 test = tuple(test)
-                sub1.data.insert(ind, CircuitInstruction(operation=j[count]["op"], qubits=test, clbits=[sub1.clbits[bitind]]))
+                sub_circuit_1.data.insert(ind, CircuitInstruction(operation=j[count]["op"], qubits=test, clbits=[sub_circuit_1.clbits[bitind]]))
                 bitind += 1
                 count += 1
             if i.operation.name == "Init":
-                ind = sub1.data.index(i)
-                sub1.data.remove(i)
-                test = map(lambda x: Qubit(sub1.qregs[0], sub1.find_bit(x).index), i.qubits)
+                ind = sub_circuit_1.data.index(i)
+                sub_circuit_1.data.remove(i)
+                test = map(lambda x: Qubit(sub_circuit_1.qregs[0], sub_circuit_1.find_bit(x).index), i.qubits)
                 test = tuple(test)
-                sub1.data.insert(ind, CircuitInstruction(operation=j[count]["init"], qubits=test))
+                sub_circuit_1.data.insert(ind, CircuitInstruction(operation=j[count]["init"], qubits=test))
                 count += 1
-        sub0.measure_all()
-        sub0 = sub0.decompose(gates_to_decompose="decomp")
-        sub1.measure_all()
-        sub1 = sub1.decompose(gates_to_decompose="decomp")
+        sub_circuit_0.measure_all()
+        sub_circuit_0 = sub_circuit_0.decompose(gates_to_decompose="decomp")
+        sub_circuit_1.measure_all()
+        sub_circuit_1 = sub_circuit_1.decompose(gates_to_decompose="decomp")
         coefs.append(coef)
-        circuits.append((sub0, sub1))   
+        circuits.append((sub_circuit_0, sub_circuit_1))   
     return circuits, coefs
 
-def run_experiments(allcircs):
+def run_experiments(experiment_circuits):
     simulator = Aer.get_backend('aer_simulator')
     results = []
-    for i in allcircs:
-        res1 = simulator.run(i[0], shots=2**12).result().get_counts()
-        res2 = simulator.run(i[1], shots=2**12).result().get_counts()
-        results.append((res1, res2))
+    for circuit_pair in experiment_circuits:
+        result_1 = simulator.run(circuit_pair[0], shots=2**12).result().get_counts()
+        result_2 = simulator.run(circuit_pair[1], shots=2**12).result().get_counts()
+        results.append((result_1, result_2))
+    results = modify_results(results)
     return results
 
 def modify_results(results):
-    modified_array = []
+    modified_results = []
     for item in results:
-        mid = []
+        sub_results_and_probability = []
         for sub in item:
             #print(sub)
-            rs = []
-            ps = []
-            for k,v in sub.items():
-                kn = k.split()
-                r = {
+            sub_results = []
+            probabilities = []
+            for measurement, count in sub.items():
+                separated_measurement = measurement.split() #separate the computational basis measurements at the end of circuit from the mid circuit eigen basis ones
+                result = {
                     "y": [],
                     "s": []
                 }
-                for i in kn[0][::-1]:
+                for i in separated_measurement[0][::-1]:
                     for c in i:
                         if int(c) == 0:
-                            r["y"].append(-1)
+                            result["y"].append(-1)
                         else:
-                            r["y"].append(1)
-                if(len(kn) > 1):
-                    for i in kn[1][::-1]:
+                            result["y"].append(1)
+                if(len(separated_measurement) > 1):
+                    for i in separated_measurement[1][::-1]:
                         for c in i:
                             if int(c) == 0:
-                                r["s"].append(-1)
+                                result["s"].append(-1)
                             else:
-                                r["s"].append(1)
-                rs.append(r)
-                ps.append(v/4096)
-            mid.append((rs, ps))
-        modified_array.append(mid)
-    return modified_array
+                                result["s"].append(1)
+                sub_results.append(result)
+                probabilities.append(count/4096)
+            sub_results_and_probability.append((sub_results, probabilities))
+        modified_results.append(sub_results_and_probability)
+    return modified_results
 
-def sample_results(data, qss):
-    ql = len(data[0][1][0][0][0]["y"]) +len(data[0][1][1][0][0]["y"]) - 1
-    f = np.zeros(ql)
-    N = min(np.power(4, len(qss)*2)/np.power(0.05,2)+ 100000, 1000000)
+def sample_results(data):
+    num_qubits = len(data[0][1][0][0][0]["y"]) +len(data[0][1][1][0][0]["y"]) - 1
+    num_cuts = len(data[0][1][0][0][0]["s"]) +len(data[0][1][1][0][0]["s"])
+    f = np.zeros(num_qubits)
+    N = min(np.power(4, (num_cuts)*2)/np.power(0.05,2)+ 100000, 1000000)
     for i in range(int(N)):
-        elem = random.choice(data)
-        sub1 = random.choices(elem[1][0][0], elem[1][0][1])[0]
-        sub2 = random.choices(elem[1][1][0], elem[1][1][1])[0]
+        random_coef_result_prob = random.choice(data)
+        coef = random_coef_result_prob[0]
+        sub_result_1 = random.choices(random_coef_result_prob[1][0][0], random_coef_result_prob[1][0][1])[0]
+        sub_result_2 = random.choices(random_coef_result_prob[1][1][0], random_coef_result_prob[1][1][1])[0]
         n = []
-        if len(qss) % 2 == 0:
-            n = -1*np.concatenate((sub1["y"], sub2["y"][1:]))*np.prod(elem[0])*np.prod(sub1["s"])*np.prod(sub2["s"])
+        if (num_cuts) % 2 == 0:
+            n = -1*np.concatenate((sub_result_1["y"], sub_result_2["y"][1:]))*np.prod(coef)*np.prod(sub_result_1["s"])*np.prod(sub_result_2["s"])
         else:
-            n = np.concatenate((sub1["y"][:-1], sub2["y"]))*np.prod(elem[0])*np.prod(sub1["s"])*np.prod(sub2["s"])
+            n = np.concatenate((sub_result_1["y"][:-1], sub_result_2["y"]))*np.prod(coef)*np.prod(sub_result_1["s"])*np.prod(sub_result_2["s"])
         f += n
-    return np.power(4, len(qss))*f/N
+    return np.power(4, (num_cuts))*f/N
 
 def get_actual_expvals(circ, obs):
     estimator = Estimator(run_options={"shots": None}, approximation = True)
