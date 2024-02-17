@@ -22,4 +22,7 @@ def print_in_order(circs):
 
 #calculate relative error
 def relative_error(actual, approx):
-    return abs(approx-actual)/abs(actual)
+    if(np.prod(actual) == 0):
+        return abs(approx-actual)/(1+abs(actual))
+    else:
+        return abs(approx-actual)/(abs(actual))
